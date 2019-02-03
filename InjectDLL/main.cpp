@@ -86,6 +86,10 @@ int main(int argc, char** argv) {
 	// Wait for the code execution to finish / terminate.
 	_tprintf("Exit code from remote thread: %d\n\nPress any key to terminate...\n", exit_code);
 
+	if (target_process != NULL) {
+		CloseHandle(target_process);
+	}
+
 	std::cin.get();
 
 	return 0;
