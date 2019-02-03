@@ -14,7 +14,6 @@ uint16_t    get_target_pid();
 static void print_error(TCHAR*);
 static void print_banner();
 static bool print_process_list();
-static bool print_process_modules(DWORD);
 static bool file_exists(std::string);
 
 
@@ -182,47 +181,6 @@ static void print_error(TCHAR* msg) {
 
 	// Display the message
 	_tprintf("\n  WARNING: %s failed with error %d (%s)", msg, eNum, sysMsg);
-}
-
-static bool print_process_modules(DWORD pid) {
-
-	HANDLE hModuleSnap = INVALID_HANDLE_VALUE;
-	MODULEENTRY32 me32;
-
-	// Take a snapshot of all modules in the specified process.
-	hModuleSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
-	if (hModuleSnap == INVALID_HANDLE_VALUE) {
-		print_error((TCHAR*)("CreateToolhelp32Snapshot (of modules)"));
-		return false;
-	}
-
-	// Set the size of the structure before using it.
-	me32.dwSize = sizeof(MODULEENTRY32);
-
-	// Retrieve information about the first module,
-	// and exit if unsuccessful
-	if (!Module32First(hModuleSnap, &me32)) {
-		print_error((TCHAR*)("Module32First"));  // show cause of failure
-		CloseHandle(hModuleSnap);				 // clean the snapshot object
-		return false;
-	}
-
-	// Now walk the module list of the process,
-	// and display information about each module
-	do
-	{
-		_tprintf("\n\n     MODULE NAME:   %s"    , me32.szModule);
-		_tprintf("\n     Executable     = %s"    , me32.szExePath);
-		_tprintf("\n     Process ID     = 0x%08X", me32.th32ProcessID);
-		_tprintf("\n     Ref count (g)  = 0x%04X", me32.GlblcntUsage);
-		_tprintf("\n     Ref count (p)  = 0x%04X", me32.ProccntUsage);
-		_tprintf("\n     Base address   = 0x%08X", (DWORD)me32.modBaseAddr);
-		_tprintf("\n     Base size      = %d"    , me32.modBaseSize);
-
-	} while (Module32Next(hModuleSnap, &me32));
-
-	CloseHandle(hModuleSnap);
-	return true;
 }
 
 static void print_banner() {
