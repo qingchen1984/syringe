@@ -11,7 +11,6 @@
 std::string get_dll_path();
 uint16_t    get_target_pid();
 
-static void print_error(TCHAR*);
 static void print_banner();
 static bool print_process_list();
 static bool file_exists(std::string);
@@ -25,18 +24,22 @@ int main(int argc, char** argv) {
 	uint16_t target_pid = get_target_pid();
 
 	if (!target_pid) {
-		print_error((TCHAR*)"get_target_pid() failed...");
+		std::cerr << "Getting remote target process ID failed..." << std::endl;
 		return 1;
 	}
 
 	// Get the dll's path that we want to inject into our remote target process.
 	std::string dll_path = get_dll_path();
 
+	std::cout << "DLL path: " << dll_path << std::endl;
+
 	// Obtain a handle to the target remote process.
 	HANDLE target_process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, target_pid);
 
 	// Allocate space for our DLL path inside the target remote process.
 	LPVOID dll_path_in_remote_mem_addr = VirtualAllocEx(target_process, NULL, _MAX_PATH, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+
+	std::cout << "DLL allocation memory address: " << &dll_path_in_remote_mem_addr << std::endl;
 
 	// Copy the DLL path into the allocated memory region.
 	bool write_status = WriteProcessMemory(
@@ -47,10 +50,10 @@ int main(int argc, char** argv) {
 		NULL
 	);
 
-	_tprintf("WriteProcessMemory was %s\n", (write_status ? "successful!" : "unsuccessful..."));
+	std::cout << "WriteProcessMemory was " << (write_status ? "successful!" : "unsuccessful...") << std::endl;;
 
 	if (!write_status) {
-		_tprintf("GetLastError() for failed WriteProcessMemory() call: %s\n", GetLastError());
+		std::cerr << "GetLastError() for failed WriteProcessMemory() call: " << GetLastError() << std::endl;
 	}
 
 	// Get the address to the LoadLibraryA Windows API function.
@@ -59,7 +62,13 @@ int main(int argc, char** argv) {
 		"LoadLibraryA"
 	);
 
-	_tprintf("LoadLibraryA address: %p\n", load_library_addr);
+	if (load_library_addr == NULL) {
+		std::cerr << "GetProcAddress failed..." << std::endl;
+		CloseHandle(target_process);
+		return 1;
+	}
+
+	std::cout << "LoadLibraryA address: " << &load_library_addr << std::endl;
 
 	// Create our remote thread for running our DLL code.
 	HANDLE remote_thread = CreateRemoteThread(
@@ -72,24 +81,26 @@ int main(int argc, char** argv) {
 		NULL
 	);
 
-	_tprintf("Remote thread address: %p\n", &remote_thread);
+	if (remote_thread == NULL) {
+		std::cerr << "CreateRemoteThread failed..." << std::endl;
+		return 1;
+	}
 
-	WaitForSingleObject(remote_thread, INFINITE);
+	std::cout << "Remote thread address: " << &remote_thread << std::endl;
 
 	// Close our remote thread handle and free the allocated memory
 	// from the target process our DLL was injected into.
-	DWORD exit_code;
-	GetExitCodeThread(remote_thread, &exit_code);
-	CloseHandle(remote_thread);
-	VirtualFreeEx(target_process, load_library_addr, 0, MEM_RELEASE);
-
-	// Wait for the code execution to finish / terminate.
-	_tprintf("Exit code from remote thread: %d\n\nPress any key to terminate...\n", exit_code);
-
-	if (target_process != NULL) {
-		CloseHandle(target_process);
+	if (VirtualFreeEx(target_process, dll_path_in_remote_mem_addr, 0, MEM_RELEASE) == 0) {
+		std::cerr << "VirtualFreeEx failed on target process..." << std::endl;
 	}
 
+	// Free our handle on the remote thread
+	CloseHandle(remote_thread);
+
+	// Free our handle on the remote process
+	CloseHandle(target_process);
+
+	std::cout << "Press any key to exit..." << std::endl;
 	std::cin.get();
 
 	return 0;
@@ -104,7 +115,7 @@ std::string get_dll_path() {
 		if (first_input_entered) {
 			system("cls");
 			print_banner();
-			std::cout << "Specified DLL path was invalid, try again..." << std::endl;
+			std::cerr << "Specified DLL path was invalid, try again..." << std::endl;
 		}
 
 		std::cout << "Enter path to DLL: ";
@@ -134,7 +145,7 @@ uint16_t get_target_pid() {
 		if (first_input_entered) {
 			system("cls");
 			print_banner();
-			std::cout << "The given process ID is invalid, try again..." << std::endl;
+			std::cerr << "The given process ID is invalid, try again..." << std::endl;
 		}
 
 		print_process_list();
@@ -163,28 +174,9 @@ uint16_t get_target_pid() {
 
 static bool file_exists(std::string path) {
 	std::ifstream f(path.c_str());
+	// We don't need to call f.close() since this isn't a dynamic instantiation.
+	// As soon as we return out with the return value of f.good(), the object will destruct.
 	return f.good();
-}
-
-static void print_error(TCHAR* msg) {
-	DWORD eNum = GetLastError();
-	TCHAR sysMsg[256];
-	TCHAR* p;
-
-	FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL, eNum,
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
-		sysMsg, 256, NULL);
-
-	// Trim the end of the line and terminate it with a null
-	p = sysMsg;
-	while ((*p > 31) || (*p == 9))
-		++p;
-	do { *p-- = 0; } while ((p >= sysMsg) &&
-		((*p == '.') || (*p < 33)));
-
-	// Display the message
-	_tprintf("\n  WARNING: %s failed with error %d (%s)", msg, eNum, sysMsg);
 }
 
 static void print_banner() {
@@ -199,7 +191,7 @@ static bool print_process_list() {
 	DWORD cProcesses;
 
 	if (!EnumProcesses(processes, sizeof(processes), &cbNeeded)) {
-		_tprintf("EnumProcesses failed...");
+		std::cerr << "EnumProcesses failed..." << std::endl;
 		return false;
 	}
 
@@ -217,7 +209,7 @@ static bool print_process_list() {
 				if (EnumProcessModules(process, &hMod, sizeof(hMod), &cbNeeded)) {
 					GetModuleBaseName(process, hMod, process_name, sizeof(process_name) / sizeof(TCHAR));
 
-					_tprintf("%-30s        (PID: %u)\n", process_name, processes[i]);
+					printf("%-30s%5s(PID: %u)\n", process_name, " ", processes[i]);
 				}
 			}
 		}
