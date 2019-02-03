@@ -36,8 +36,25 @@ int main(int argc, char** argv) {
 	// Obtain a handle to the target remote process.
 	HANDLE target_process = OpenProcess(PROCESS_ALL_ACCESS, FALSE, target_pid);
 
+	if (target_process == NULL) {
+		std::cerr << "Acquiring a handle to the remote target process failed..." << std::endl;
+		return 1;
+	}
+
 	// Allocate space for our DLL path inside the target remote process.
-	LPVOID dll_path_in_remote_mem_addr = VirtualAllocEx(target_process, NULL, _MAX_PATH, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	LPVOID dll_path_in_remote_mem_addr = VirtualAllocEx(
+		target_process,
+		NULL,
+		_MAX_PATH,
+		MEM_RESERVE | MEM_COMMIT,
+		PAGE_EXECUTE_READWRITE
+	);
+
+	if (dll_path_in_remote_mem_addr == NULL) {
+		std::cerr << "Allocating space for our DLL path in the remote target process's virtual memory space failed..." << std::endl;
+		CloseHandle(target_process);
+		return 1;
+	}
 
 	std::cout << "DLL allocation memory address: " << &dll_path_in_remote_mem_addr << std::endl;
 
@@ -54,6 +71,8 @@ int main(int argc, char** argv) {
 
 	if (!write_status) {
 		std::cerr << "GetLastError() for failed WriteProcessMemory() call: " << GetLastError() << std::endl;
+		CloseHandle(target_process);
+		return 1;
 	}
 
 	// Get the address to the LoadLibraryA Windows API function.
